@@ -11,8 +11,13 @@
     font-family: Arial, sans-serif;
     font-size: 14px;
     box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    transition: background-color 0.3s ease;
 }
 
 .save-to-sheet-button:hover {
     background-color: #45a049;
+}
+
+.save-to-sheet-button:active {
+    background-color: #3d8b40;
 } 
