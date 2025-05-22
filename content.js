@@ -1,4 +1,3 @@
-
 const floatingButton = document.createElement('div');
 floatingButton.className = 'save-to-sheet-button';
 floatingButton.textContent = 'Save to Sheet';
@@ -32,6 +31,124 @@ document.addEventListener('mousedown', function(e) {
 
 floatingButton.addEventListener('click', function() {
     const selectedText = this.dataset.selectedText;
-    console.log('Saving text:', selectedText);
-    this.style.display = 'none';
+    const metadata = {
+        selectedText: selectedText,
+        pageTitle: document.title,
+        pageUrl: window.location.href,
+        timestamp: new Date().toISOString()
+    };
+
+    // Create and show confirmation popup
+    const popup = document.createElement('div');
+    popup.innerHTML = `
+        <div class="overlay"></div>
+        <div class="confirmation-popup">
+            <h2>Confirm Highlight</h2>
+            <div class="metadata-item">
+                <div class="metadata-label">Selected Text:</div>
+                <div class="metadata-value">${metadata.selectedText}</div>
+            </div>
+            <div class="metadata-item">
+                <div class="metadata-label">Page Title:</div>
+                <div class="metadata-value">${metadata.pageTitle}</div>
+            </div>
+            <div class="metadata-item">
+                <div class="metadata-label">URL:</div>
+                <div class="metadata-value">${metadata.pageUrl}</div>
+            </div>
+            <div class="metadata-item">
+                <div class="metadata-label">Timestamp:</div>
+                <div class="metadata-value">${metadata.timestamp}</div>
+            </div>
+            <div class="button-container">
+                <button class="button cancel-button" id="cancel-button">Cancel</button>
+                <button class="button confirm-button" id="confirm-button">Send to Sheet</button>
+            </div>
+        </div>
+    `;
+
+    // Add styles
+    const style = document.createElement('style');
+    style.textContent = `
+        .confirmation-popup {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 10001;
+            max-width: 500px;
+            width: 90%;
+        }
+        .metadata-item {
+            margin: 10px 0;
+            padding: 8px;
+            background: #f5f5f5;
+            border-radius: 4px;
+        }
+        .metadata-label {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 4px;
+        }
+        .metadata-value {
+            color: #666;
+            word-break: break-word;
+        }
+        .button-container {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .confirm-button {
+            background: #4CAF50;
+            color: white;
+        }
+        .cancel-button {
+            background: #f44336;
+            color: white;
+        }
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 10000;
+        }
+    `;
+    document.head.appendChild(style);
+    document.body.appendChild(popup);
+
+    // Handle button clicks
+    const confirmButton = popup.querySelector('#confirm-button');
+    const cancelButton = popup.querySelector('#cancel-button');
+
+    confirmButton.addEventListener('click', () => {
+        console.log('Sending to sheet:', metadata);
+        // TODO: Implement sending to sheet
+        popup.remove();
+        this.style.display = 'none';
+    });
+
+    cancelButton.addEventListener('click', () => {
+        popup.remove();
+    });
+
+    // Close popup when clicking outside
+    popup.querySelector('.overlay').addEventListener('click', () => {
+        popup.remove();
+    });
 });
