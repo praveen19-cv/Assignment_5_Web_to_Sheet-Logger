@@ -1,43 +1,196 @@
 const floatingButton = document.createElement('div');
 floatingButton.className = 'save-to-sheet-button';
 floatingButton.textContent = 'Save to Sheet';
-floatingButton.style.display = 'none';
+floatingButton.style.cssText = `
+    position: fixed;
+    display: none;
+    background: #4CAF50;
+    color: white;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    z-index: 10000;
+    transition: opacity 0.2s;
+    opacity: 0;
+`;
 document.body.appendChild(floatingButton);
 
-document.addEventListener('mouseup', function(e) {
+// Track the last selection to prevent duplicates
+let lastSelection = {
+    text: '',
+    timestamp: 0
+};
+
+// Debounce function to prevent rapid firing
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+// Function to check if selection is valid
+function isValidSelection(text) {
+    return text && text.trim().length > 0 && text.length <= 50000; // Max 50k chars
+}
+
+// Function to position button
+function positionButton(rect, scrollX, scrollY) {
+    // Get viewport dimensions
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    
+    // Calculate button dimensions
+    const buttonWidth = floatingButton.offsetWidth;
+    const buttonHeight = floatingButton.offsetHeight;
+    
+    // Calculate initial position
+    let left = rect.left + scrollX;
+    let top = rect.bottom + scrollY + 10;
+    
+    // Ensure button stays within viewport
+    if (left + buttonWidth > viewportWidth + scrollX) {
+        left = viewportWidth + scrollX - buttonWidth - 10;
+    }
+    if (top + buttonHeight > viewportHeight + scrollY) {
+        top = rect.top + scrollY - buttonHeight - 10;
+    }
+    
+    // Ensure minimum distance from edges
+    left = Math.max(10, Math.min(left, viewportWidth + scrollX - buttonWidth - 10));
+    top = Math.max(10, Math.min(top, viewportHeight + scrollY - buttonHeight - 10));
+    
+    floatingButton.style.left = `${left}px`;
+    floatingButton.style.top = `${top}px`;
+}
+
+// Debounced selection handler
+const handleSelection = debounce(function(e) {
     const selectedText = window.getSelection().toString().trim();
     
-    if (selectedText) {
+    if (isValidSelection(selectedText)) {
         const selection = window.getSelection();
         const range = selection.getRangeAt(0);
         const rect = range.getBoundingClientRect();
         
-        floatingButton.style.left = `${rect.left + window.scrollX}px`;
-        floatingButton.style.top = `${rect.bottom + window.scrollY + 10}px`;
-        floatingButton.style.display = 'block';
+        // Check if this is a duplicate selection
+        const now = Date.now();
+        if (selectedText === lastSelection.text && now - lastSelection.timestamp < 2000) {
+            return; // Ignore duplicate selection within 2 seconds
+        }
         
+        // Update last selection
+        lastSelection = {
+            text: selectedText,
+            timestamp: now
+        };
+        
+        // Position and show button
+        positionButton(rect, window.scrollX, window.scrollY);
+        floatingButton.style.display = 'block';
         floatingButton.dataset.selectedText = selectedText;
-        console.log('Selected text:', selectedText);
+        
+        // Fade in
+        requestAnimationFrame(() => {
+            floatingButton.style.opacity = '1';
+        });
     } else {
-        floatingButton.style.display = 'none';
+        hideButton();
     }
-});
+}, 100);
+
+// Function to hide button with fade
+function hideButton() {
+    floatingButton.style.opacity = '0';
+    setTimeout(() => {
+        floatingButton.style.display = 'none';
+    }, 200);
+}
+
+// Event listeners
+document.addEventListener('mouseup', handleSelection);
+document.addEventListener('keyup', handleSelection);
 
 document.addEventListener('mousedown', function(e) {
     if (!floatingButton.contains(e.target)) {
-        floatingButton.style.display = 'none';
+        hideButton();
     }
 });
 
-floatingButton.addEventListener('click', function() {
-    const selectedText = this.dataset.selectedText;
-    const metadata = {
-        selectedText: selectedText,
-        pageTitle: document.title,
-        pageUrl: window.location.href,
-        timestamp: new Date().toISOString()
-    };
+// Hide button on scroll
+let scrollTimeout;
+window.addEventListener('scroll', function() {
+    hideButton();
+    clearTimeout(scrollTimeout);
+    scrollTimeout = setTimeout(handleSelection, 150);
+});
 
+// Hide button on resize
+window.addEventListener('resize', function() {
+    hideButton();
+    clearTimeout(scrollTimeout);
+    scrollTimeout = setTimeout(handleSelection, 150);
+});
+
+// Function to validate data before sending
+function validateData(data) {
+    const errors = [];
+    
+    // Validate selected text
+    if (!data.selectedText || data.selectedText.trim().length === 0) {
+        errors.push('Selected text cannot be empty');
+    } else if (data.selectedText.length > 50000) {
+        errors.push('Selected text is too long (max 50,000 characters)');
+    }
+    
+    // Validate URL
+    try {
+        new URL(data.pageUrl);
+    } catch (e) {
+        errors.push('Invalid page URL');
+    }
+    
+    // Validate title
+    if (!data.pageTitle || data.pageTitle.trim().length === 0) {
+        errors.push('Page title cannot be empty');
+    }
+    
+    // Validate timestamp
+    if (!data.timestamp || isNaN(new Date(data.timestamp).getTime())) {
+        errors.push('Invalid timestamp');
+    }
+    
+    return {
+        isValid: errors.length === 0,
+        errors: errors
+    };
+}
+
+// Listen for messages from background script
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.action === 'saveSelection') {
+        // Create metadata object
+        const metadata = {
+            selectedText: message.text,
+            pageTitle: document.title,
+            pageUrl: window.location.href,
+            timestamp: new Date().toISOString()
+        };
+        
+        // Show confirmation popup
+        showConfirmationPopup(metadata);
+    }
+});
+
+// Function to show confirmation popup
+function showConfirmationPopup(metadata) {
     // Create and show confirmation popup
     const popup = document.createElement('div');
     popup.innerHTML = `
@@ -137,6 +290,31 @@ floatingButton.addEventListener('click', function() {
     const cancelButton = popup.querySelector('#cancel-button');
 
     confirmButton.addEventListener('click', async () => {
+        // Validate data first
+        const validation = validateData(metadata);
+        if (!validation.isValid) {
+            // Show validation errors
+            const errorMessage = document.createElement('div');
+            errorMessage.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: #f44336;
+                color: white;
+                padding: 12px 24px;
+                border-radius: 4px;
+                z-index: 10002;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            `;
+            errorMessage.textContent = 'Validation errors: ' + validation.errors.join(', ');
+            document.body.appendChild(errorMessage);
+            
+            setTimeout(() => {
+                errorMessage.remove();
+            }, 5000);
+            return;
+        }
+
         // Show loading state
         confirmButton.disabled = true;
         confirmButton.textContent = 'Sending...';
@@ -146,7 +324,6 @@ floatingButton.addEventListener('click', function() {
         
         const sendToSheet = async () => {
             try {
-                // Replace this URL with your deployed Google Apps Script web app URL
                 const webhookUrl = 'https://script.google.com/macros/s/AKfycbwtNZiC7bBdxRL1DcwW3-RawccVUxgzNdQ9blS0GpKZNNK_We3sAHPe_ce0wKD4cwQb/exec';
                 
                 const response = await fetch(webhookUrl, {
@@ -158,8 +335,6 @@ floatingButton.addEventListener('click', function() {
                     body: JSON.stringify(metadata)
                 });
 
-                // Since we're using no-cors mode, we can't read the response
-                // We'll assume success if we don't get an error
                 if (response.type === 'opaque') {
                     // Show success message
                     const successMessage = document.createElement('div');
@@ -177,7 +352,6 @@ floatingButton.addEventListener('click', function() {
                     successMessage.textContent = 'Highlight saved successfully!';
                     document.body.appendChild(successMessage);
                     
-                    // Remove success message after 3 seconds
                     setTimeout(() => {
                         successMessage.remove();
                     }, 3000);
@@ -190,7 +364,6 @@ floatingButton.addEventListener('click', function() {
             } catch (error) {
                 if (retryCount < maxRetries) {
                     retryCount++;
-                    // Wait for 1 second before retrying
                     await new Promise(resolve => setTimeout(resolve, 1000));
                     return sendToSheet();
                 }
@@ -237,14 +410,12 @@ floatingButton.addEventListener('click', function() {
                 errorMessage.appendChild(retryButton);
                 document.body.appendChild(errorMessage);
                 
-                // Remove error message after 10 seconds if not retried
                 setTimeout(() => {
                     if (document.body.contains(errorMessage)) {
                         errorMessage.remove();
                     }
                 }, 10000);
             } finally {
-                // Reset button state
                 confirmButton.disabled = false;
                 confirmButton.textContent = 'Send to Sheet';
             }
@@ -261,4 +432,16 @@ floatingButton.addEventListener('click', function() {
     popup.querySelector('.overlay').addEventListener('click', () => {
         popup.remove();
     });
+}
+
+// Update the floating button click handler
+floatingButton.addEventListener('click', function() {
+    const selectedText = this.dataset.selectedText;
+    const metadata = {
+        selectedText: selectedText,
+        pageTitle: document.title,
+        pageUrl: window.location.href,
+        timestamp: new Date().toISOString()
+    };
+    showConfirmationPopup(metadata);
 });

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Web-to-Sheet Logger",
+  "name": "Web to Sheet Logger",
   "version": "1.0",
-  "description": "Capture highlighted text and save it to Google Sheets",
+  "description": "Save web content to Google Sheets",
   "permissions": [
     "activeTab",
     "contextMenus",
@@ -17,5 +17,8 @@
       "js": ["content.js"],
       "css": ["styles.css"]
     }
-  ]
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
 } 
