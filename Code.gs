@@ -3,7 +3,11 @@ function doPost(e) {
   try {
     // Parse the incoming JSON data
     const data = JSON.parse(e.postData.contents);
-    return processData(data);
+    const result = processData(data);
+    
+    // Return JSON response with CORS headers
+    return ContentService.createTextOutput(JSON.stringify(result))
+      .setMimeType(ContentService.MimeType.JSON);
   } catch (error) {
     return handleError(error);
   }
@@ -19,10 +23,24 @@ function doGet(e) {
       pageTitle: e.parameter.pageTitle,
       timestamp: e.parameter.timestamp
     };
-    return processData(data);
+    const result = processData(data);
+    
+    // Return JSON response
+    return ContentService.createTextOutput(JSON.stringify(result))
+      .setMimeType(ContentService.MimeType.JSON);
   } catch (error) {
     return handleError(error);
   }
+}
+
+// Handle OPTIONS requests for CORS preflight
+function doOptions(e) {
+  return ContentService.createTextOutput('')
+    .setMimeType(ContentService.MimeType.TEXT)
+    .setHeader('Access-Control-Allow-Origin', '*')
+    .setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
+    .setHeader('Access-Control-Allow-Headers', 'Content-Type')
+    .setHeader('Access-Control-Max-Age', '86400');
 }
 
 // Common function to process data and append to sheet
@@ -43,18 +61,18 @@ function processData(data) {
   sheet.appendRow(rowData);
   
   // Return success response
-  return ContentService.createTextOutput(JSON.stringify({
+  return {
     'status': 'success',
     'message': 'Data successfully appended to sheet'
-  })).setMimeType(ContentService.MimeType.JSON);
+  };
 }
 
 // Common function to handle errors
 function handleError(error) {
-  return ContentService.createTextOutput(JSON.stringify({
+  return {
     'status': 'error',
     'message': error.toString()
-  })).setMimeType(ContentService.MimeType.JSON);
+  };
 }
 
 // Function to create headers in the sheet

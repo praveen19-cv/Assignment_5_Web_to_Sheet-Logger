@@ -137,69 +137,120 @@ floatingButton.addEventListener('click', function() {
     const cancelButton = popup.querySelector('#cancel-button');
 
     confirmButton.addEventListener('click', async () => {
-        try {
-            // Replace this URL with your deployed Google Apps Script web app URL
-            const webhookUrl = 'https://script.google.com/macros/s/AKfycbySBri0YFNCyMdLkWOrPWQKpsOVoUPo4sC2xBW5J6gfvo4lpbsGnAXtsSHM3OfJ0gHF/exec';
-            
-            const response = await fetch(webhookUrl, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(metadata)
-            });
+        // Show loading state
+        confirmButton.disabled = true;
+        confirmButton.textContent = 'Sending...';
+        
+        const maxRetries = 3;
+        let retryCount = 0;
+        
+        const sendToSheet = async () => {
+            try {
+                // Replace this URL with your deployed Google Apps Script web app URL
+                const webhookUrl = 'https://script.google.com/macros/s/AKfycbwtNZiC7bBdxRL1DcwW3-RawccVUxgzNdQ9blS0GpKZNNK_We3sAHPe_ce0wKD4cwQb/exec';
+                
+                const response = await fetch(webhookUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    mode: 'no-cors',
+                    body: JSON.stringify(metadata)
+                });
 
-            const result = await response.json();
-            
-            if (result.status === 'success') {
-                // Show success message
-                const successMessage = document.createElement('div');
-                successMessage.style.cssText = `
+                // Since we're using no-cors mode, we can't read the response
+                // We'll assume success if we don't get an error
+                if (response.type === 'opaque') {
+                    // Show success message
+                    const successMessage = document.createElement('div');
+                    successMessage.style.cssText = `
+                        position: fixed;
+                        top: 20px;
+                        right: 20px;
+                        background: #4CAF50;
+                        color: white;
+                        padding: 12px 24px;
+                        border-radius: 4px;
+                        z-index: 10002;
+                        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+                    `;
+                    successMessage.textContent = 'Highlight saved successfully!';
+                    document.body.appendChild(successMessage);
+                    
+                    // Remove success message after 3 seconds
+                    setTimeout(() => {
+                        successMessage.remove();
+                    }, 3000);
+                    
+                    popup.remove();
+                    this.style.display = 'none';
+                } else {
+                    throw new Error('Failed to save highlight');
+                }
+            } catch (error) {
+                if (retryCount < maxRetries) {
+                    retryCount++;
+                    // Wait for 1 second before retrying
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    return sendToSheet();
+                }
+                
+                // Show error message with retry option
+                const errorMessage = document.createElement('div');
+                errorMessage.style.cssText = `
                     position: fixed;
                     top: 20px;
                     right: 20px;
-                    background: #4CAF50;
+                    background: #f44336;
                     color: white;
                     padding: 12px 24px;
                     border-radius: 4px;
                     z-index: 10002;
                     box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
                 `;
-                successMessage.textContent = 'Highlight saved successfully!';
-                document.body.appendChild(successMessage);
                 
-                // Remove success message after 3 seconds
+                const errorText = document.createElement('span');
+                errorText.textContent = `Error saving highlight: ${error.message}`;
+                
+                const retryButton = document.createElement('button');
+                retryButton.textContent = 'Retry';
+                retryButton.style.cssText = `
+                    background: white;
+                    color: #f44336;
+                    border: none;
+                    padding: 4px 8px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-weight: bold;
+                `;
+                
+                retryButton.addEventListener('click', () => {
+                    errorMessage.remove();
+                    retryCount = 0;
+                    sendToSheet();
+                });
+                
+                errorMessage.appendChild(errorText);
+                errorMessage.appendChild(retryButton);
+                document.body.appendChild(errorMessage);
+                
+                // Remove error message after 10 seconds if not retried
                 setTimeout(() => {
-                    successMessage.remove();
-                }, 3000);
-            } else {
-                throw new Error(result.message);
+                    if (document.body.contains(errorMessage)) {
+                        errorMessage.remove();
+                    }
+                }, 10000);
+            } finally {
+                // Reset button state
+                confirmButton.disabled = false;
+                confirmButton.textContent = 'Send to Sheet';
             }
-        } catch (error) {
-            // Show error message
-            const errorMessage = document.createElement('div');
-            errorMessage.style.cssText = `
-                position: fixed;
-                top: 20px;
-                right: 20px;
-                background: #f44336;
-                color: white;
-                padding: 12px 24px;
-                border-radius: 4px;
-                z-index: 10002;
-                box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-            `;
-            errorMessage.textContent = 'Error saving highlight: ' + error.message;
-            document.body.appendChild(errorMessage);
-            
-            // Remove error message after 3 seconds
-            setTimeout(() => {
-                errorMessage.remove();
-            }, 3000);
-        }
+        };
         
-        popup.remove();
-    this.style.display = 'none';
+        await sendToSheet();
     });
 
     cancelButton.addEventListener('click', () => {
