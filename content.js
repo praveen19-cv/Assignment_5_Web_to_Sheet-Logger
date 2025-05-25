@@ -17,11 +17,8 @@ floatingButton.style.cssText = `
 `;
 document.body.appendChild(floatingButton);
 
-// Track the last selection to prevent duplicates
-let lastSelection = {
-    text: '',
-    timestamp: 0
-};
+// Track multiple selections
+let selections = new Map(); // Map to store multiple selections
 
 // Add a flag to track if a save is in progress
 let isSaving = false;
@@ -42,6 +39,11 @@ function debounce(func, wait) {
 // Function to check if selection is valid
 function isValidSelection(text) {
     return text && text.trim().length > 0 && text.length <= 50000; // Max 50k chars
+}
+
+// Function to generate unique ID for selection
+function generateSelectionId() {
+    return `selection_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
 
 // Function to position button
@@ -72,6 +74,11 @@ function positionButton(rect, scrollX, scrollY) {
     
     floatingButton.style.left = `${left}px`;
     floatingButton.style.top = `${top}px`;
+
+    // Update button text to show selection count
+    floatingButton.textContent = selections.size > 1 
+        ? `Save ${selections.size} Selections` 
+        : 'Save to Sheet';
 }
 
 // Debounced selection handler
@@ -83,29 +90,24 @@ const handleSelection = debounce(function(e) {
         const range = selection.getRangeAt(0);
         const rect = range.getBoundingClientRect();
         
-        // Check if this is a duplicate selection
-        const now = Date.now();
-        if (selectedText === lastSelection.text && now - lastSelection.timestamp < 2000) {
-            return; // Ignore duplicate selection within 2 seconds
-        }
+        // Generate unique ID for this selection
+        const selectionId = generateSelectionId();
         
-        // Update last selection
-        lastSelection = {
+        // Store selection with metadata
+        selections.set(selectionId, {
             text: selectedText,
-            timestamp: now
-        };
+            timestamp: Date.now(),
+            rect: rect
+        });
         
         // Position and show button
         positionButton(rect, window.scrollX, window.scrollY);
         floatingButton.style.display = 'block';
-        floatingButton.dataset.selectedText = selectedText;
         
         // Fade in
         requestAnimationFrame(() => {
             floatingButton.style.opacity = '1';
         });
-    } else {
-        hideButton();
     }
 }, 100);
 
@@ -114,6 +116,8 @@ function hideButton() {
     floatingButton.style.opacity = '0';
     setTimeout(() => {
         floatingButton.style.display = 'none';
+        // Clear selections when hiding button
+        selections.clear();
     }, 200);
 }
 
@@ -196,30 +200,93 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 function showConfirmationPopup(metadata) {
     // Create and show confirmation popup
     const popup = document.createElement('div');
-    popup.innerHTML = `
-        <div class="overlay"></div>
-        <div class="confirmation-popup">
+    
+    // Create content based on number of selections
+    let content = '';
+    if (selections.size > 1) {
+        content = `
+            <h2>Confirm ${selections.size} Highlights</h2>
+            <div class="selections-list">
+                ${Array.from(selections.entries()).map(([id, selection], index) => `
+                    <div class="selection-item">
+                        <div class="selection-header">
+                            <span class="selection-number">#${index + 1}</span>
+                            <button class="remove-selection" data-id="${id}">×</button>
+                        </div>
+                        <div class="selection-text">${selection.text}</div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    } else {
+        content = `
             <h2>Confirm Highlight</h2>
             <div class="metadata-item">
                 <div class="metadata-label">Selected Text:</div>
                 <div class="metadata-value">${metadata.selectedText}</div>
             </div>
-            <div class="metadata-item">
-                <div class="metadata-label">Page Title:</div>
-                <div class="metadata-value">${metadata.pageTitle}</div>
+        `;
+    }
+    
+    // Add sheet selector
+    content += `
+        <div class="metadata-item">
+            <div class="metadata-label">Select Sheet:</div>
+            <div class="sheet-selector">
+                <select id="sheet-select">
+                    <option value="default">Default Sheet</option>
+                    <option value="work">Work Notes</option>
+                    <option value="personal">Personal Notes</option>
+                    <option value="research">Research</option>
+                </select>
+                <button id="manage-sheets" class="manage-sheets-btn">Manage Sheets</button>
             </div>
-            <div class="metadata-item">
-                <div class="metadata-label">URL:</div>
-                <div class="metadata-value">${metadata.pageUrl}</div>
+        </div>
+    `;
+    
+    // Add tags section
+    content += `
+        <div class="metadata-item">
+            <div class="metadata-label">Tags:</div>
+            <div class="tags-container">
+                <div class="tags-input">
+                    <input type="text" id="tag-input" placeholder="Add tags (press Enter)">
+                    <div class="suggested-tags">
+                        <span class="tag-suggestion" data-tag="Important">Important</span>
+                        <span class="tag-suggestion" data-tag="To-Do">To-Do</span>
+                        <span class="tag-suggestion" data-tag="Reference">Reference</span>
+                        <span class="tag-suggestion" data-tag="Question">Question</span>
+                    </div>
+                </div>
+                <div class="selected-tags" id="selected-tags"></div>
             </div>
-            <div class="metadata-item">
-                <div class="metadata-label">Timestamp:</div>
-                <div class="metadata-value">${metadata.timestamp}</div>
-            </div>
-            <div class="button-container">
-                <button class="button cancel-button" id="cancel-button">Cancel</button>
-                <button class="button confirm-button" id="confirm-button">Send to Sheet</button>
-            </div>
+        </div>
+    `;
+    
+    // Add common metadata
+    content += `
+        <div class="metadata-item">
+            <div class="metadata-label">Page Title:</div>
+            <div class="metadata-value">${metadata.pageTitle}</div>
+        </div>
+        <div class="metadata-item">
+            <div class="metadata-label">URL:</div>
+            <div class="metadata-value">${metadata.pageUrl}</div>
+        </div>
+        <div class="metadata-item">
+            <div class="metadata-label">Timestamp:</div>
+            <div class="metadata-value">${metadata.timestamp}</div>
+        </div>
+        <div class="button-container">
+            <button class="button cancel-button" id="cancel-button">Cancel</button>
+            <button class="button confirm-button" id="confirm-button">Send to Sheet</button>
+        </div>
+    `;
+    
+    popup.innerHTML = `
+        <div class="overlay"></div>
+        <div class="confirmation-popup">
+            ${content}
         </div>
     `;
 
@@ -238,6 +305,114 @@ function showConfirmationPopup(metadata) {
             z-index: 10001;
             max-width: 500px;
             width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .sheet-selector {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        #sheet-select {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: white;
+        }
+        .manage-sheets-btn {
+            padding: 8px 12px;
+            background: #f0f0f0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .manage-sheets-btn:hover {
+            background: #e0e0e0;
+        }
+        .selections-list {
+            max-height: 300px;
+            overflow-y: auto;
+            margin: 10px 0;
+        }
+        .selection-item {
+            margin: 10px 0;
+            padding: 10px;
+            background: #f5f5f5;
+            border-radius: 4px;
+            position: relative;
+        }
+        .selection-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+        .selection-number {
+            font-weight: bold;
+            color: #4CAF50;
+        }
+        .remove-selection {
+            background: none;
+            border: none;
+            color: #ff4444;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 0 5px;
+        }
+        .selection-text {
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .tags-container {
+            margin-top: 8px;
+        }
+        .tags-input {
+            position: relative;
+        }
+        #tag-input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-bottom: 8px;
+        }
+        .suggested-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .tag-suggestion {
+            background: #e0e0e0;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background-color 0.2s;
+        }
+        .tag-suggestion:hover {
+            background: #d0d0d0;
+        }
+        .selected-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .tag {
+            background: #4CAF50;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .tag-remove {
+            cursor: pointer;
+            font-weight: bold;
         }
         .metadata-item {
             margin: 10px 0;
@@ -251,7 +426,6 @@ function showConfirmationPopup(metadata) {
             margin-bottom: 4px;
         }
         .metadata-value {
-            color: #666;
             word-break: break-word;
         }
         .button-container {
@@ -267,12 +441,12 @@ function showConfirmationPopup(metadata) {
             cursor: pointer;
             font-weight: bold;
         }
-        .confirm-button {
-            background: #4CAF50;
-            color: white;
-        }
         .cancel-button {
             background: #f44336;
+            color: white;
+        }
+        .confirm-button {
+            background: #4CAF50;
             color: white;
         }
         .overlay {
@@ -288,40 +462,249 @@ function showConfirmationPopup(metadata) {
     document.head.appendChild(style);
     document.body.appendChild(popup);
 
+    // Initialize sheet selector
+    const sheetSelect = popup.querySelector('#sheet-select');
+    const manageSheetsBtn = popup.querySelector('#manage-sheets');
+
+    // Load saved sheets from storage
+    chrome.storage.sync.get(['sheets', 'defaultSheet'], function(result) {
+        if (result.sheets) {
+            // Clear default options
+            sheetSelect.innerHTML = '';
+            
+            // Add saved sheets
+            result.sheets.forEach(sheet => {
+                const option = document.createElement('option');
+                option.value = sheet.id;
+                option.textContent = sheet.name;
+                sheetSelect.appendChild(option);
+            });
+            
+            // Set default sheet if saved
+            if (result.defaultSheet) {
+                sheetSelect.value = result.defaultSheet;
+            }
+        }
+    });
+
+    // Handle manage sheets button click
+    manageSheetsBtn.addEventListener('click', () => {
+        // Create manage sheets popup
+        const managePopup = document.createElement('div');
+        managePopup.innerHTML = `
+            <div class="overlay"></div>
+            <div class="manage-sheets-popup">
+                <h3>Manage Sheets</h3>
+                <div class="sheets-list"></div>
+                <div class="add-sheet">
+                    <input type="text" id="new-sheet-name" placeholder="New sheet name">
+                    <button id="add-sheet-btn">Add Sheet</button>
+                </div>
+                <div class="button-container">
+                    <button class="button cancel-button" id="close-manage">Close</button>
+                </div>
+            </div>
+        `;
+
+        // Add styles for manage sheets popup
+        const manageStyle = document.createElement('style');
+        manageStyle.textContent = `
+            .manage-sheets-popup {
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: white;
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                z-index: 10002;
+                width: 300px;
+            }
+            .sheets-list {
+                margin: 15px 0;
+                max-height: 200px;
+                overflow-y: auto;
+            }
+            .sheet-item {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 8px;
+                background: #f5f5f5;
+                margin: 5px 0;
+                border-radius: 4px;
+            }
+            .sheet-item button {
+                background: none;
+                border: none;
+                color: #ff4444;
+                cursor: pointer;
+                padding: 0 5px;
+            }
+            .add-sheet {
+                display: flex;
+                gap: 10px;
+                margin: 15px 0;
+            }
+            .add-sheet input {
+                flex: 1;
+                padding: 8px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+            }
+            .add-sheet button {
+                padding: 8px 12px;
+                background: #4CAF50;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+            }
+        `;
+        document.head.appendChild(manageStyle);
+        document.body.appendChild(managePopup);
+
+        // Load and display sheets
+        function loadSheets() {
+            chrome.storage.sync.get(['sheets'], function(result) {
+                const sheetsList = managePopup.querySelector('.sheets-list');
+                sheetsList.innerHTML = '';
+                
+                if (result.sheets) {
+                    result.sheets.forEach(sheet => {
+                        const sheetItem = document.createElement('div');
+                        sheetItem.className = 'sheet-item';
+                        sheetItem.innerHTML = `
+                            <span>${sheet.name}</span>
+                            <button class="delete-sheet" data-id="${sheet.id}">×</button>
+                        `;
+                        sheetsList.appendChild(sheetItem);
+                    });
+                }
+            });
+        }
+
+        // Load initial sheets
+        loadSheets();
+
+        // Handle add sheet
+        const addSheetBtn = managePopup.querySelector('#add-sheet-btn');
+        const newSheetInput = managePopup.querySelector('#new-sheet-name');
+
+        addSheetBtn.addEventListener('click', () => {
+            const sheetName = newSheetInput.value.trim();
+            if (sheetName) {
+                chrome.storage.sync.get(['sheets'], function(result) {
+                    const sheets = result.sheets || [];
+                    const newSheet = {
+                        id: `sheet_${Date.now()}`,
+                        name: sheetName
+                    };
+                    sheets.push(newSheet);
+                    
+                    chrome.storage.sync.set({ sheets: sheets }, function() {
+                        newSheetInput.value = '';
+                        loadSheets();
+                        
+                        // Add to main popup's select
+                        const option = document.createElement('option');
+                        option.value = newSheet.id;
+                        option.textContent = newSheet.name;
+                        sheetSelect.appendChild(option);
+                    });
+                });
+            }
+        });
+
+        // Handle delete sheet
+        managePopup.addEventListener('click', (e) => {
+            if (e.target.classList.contains('delete-sheet')) {
+                const sheetId = e.target.dataset.id;
+                chrome.storage.sync.get(['sheets'], function(result) {
+                    const sheets = result.sheets.filter(sheet => sheet.id !== sheetId);
+                    chrome.storage.sync.set({ sheets: sheets }, function() {
+                        loadSheets();
+                        
+                        // Remove from main popup's select
+                        const option = sheetSelect.querySelector(`option[value="${sheetId}"]`);
+                        if (option) {
+                            option.remove();
+                        }
+                    });
+                });
+            }
+        });
+
+        // Handle close
+        managePopup.querySelector('#close-manage').addEventListener('click', () => {
+            managePopup.remove();
+        });
+    });
+
+    // Initialize tags
+    const selectedTags = new Set();
+    const tagInput = popup.querySelector('#tag-input');
+    const selectedTagsContainer = popup.querySelector('#selected-tags');
+
+    // Function to add a tag
+    function addTag(tag) {
+        if (tag && !selectedTags.has(tag)) {
+            selectedTags.add(tag);
+            const tagElement = document.createElement('div');
+            tagElement.className = 'tag';
+            tagElement.innerHTML = `
+                ${tag}
+                <span class="tag-remove">×</span>
+            `;
+            tagElement.querySelector('.tag-remove').addEventListener('click', () => {
+                selectedTags.delete(tag);
+                tagElement.remove();
+            });
+            selectedTagsContainer.appendChild(tagElement);
+        }
+        tagInput.value = '';
+    }
+
+    // Handle tag input
+    tagInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && tagInput.value.trim()) {
+            e.preventDefault();
+            addTag(tagInput.value.trim());
+        }
+    });
+
+    // Handle suggested tags
+    popup.querySelectorAll('.tag-suggestion').forEach(suggestion => {
+        suggestion.addEventListener('click', () => {
+            addTag(suggestion.dataset.tag);
+        });
+    });
+
     // Handle button clicks
     const confirmButton = popup.querySelector('#confirm-button');
     const cancelButton = popup.querySelector('#cancel-button');
 
     confirmButton.addEventListener('click', async () => {
-        // Prevent multiple saves
         if (isSaving) {
             return;
         }
 
-        // Validate data first
-        const validation = validateData(metadata);
-        if (!validation.isValid) {
-            // Show validation errors
-            const errorMessage = document.createElement('div');
-            errorMessage.style.cssText = `
-                position: fixed;
-                top: 20px;
-                right: 20px;
-                background: #f44336;
-                color: white;
-                padding: 12px 24px;
-                border-radius: 4px;
-                z-index: 10002;
-                box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-            `;
-            errorMessage.textContent = 'Validation errors: ' + validation.errors.join(', ');
-            document.body.appendChild(errorMessage);
-            
-            setTimeout(() => {
-                errorMessage.remove();
-            }, 5000);
-            return;
-        }
+        // Add tags and sheet ID to metadata
+        metadata.tags = Array.from(selectedTags);
+        metadata.sheetId = sheetSelect.value;
+
+        // If multiple selections, create an array of metadata objects
+        const dataToSend = selections.size > 1
+            ? Array.from(selections.values()).map(selection => ({
+                selectedText: selection.text,
+                pageTitle: metadata.pageTitle,
+                pageUrl: metadata.pageUrl,
+                timestamp: metadata.timestamp,
+                tags: metadata.tags,
+                sheetId: metadata.sheetId
+            }))
+            : [metadata];
 
         // Set saving flag
         isSaving = true;
@@ -335,48 +718,50 @@ function showConfirmationPopup(metadata) {
         
         const sendToSheet = async () => {
             try {
-                const webhookUrl = 'https://script.google.com/macros/s/AKfycbwtNZiC7bBdxRL1DcwW3-RawccVUxgzNdQ9blS0GpKZNNK_We3sAHPe_ce0wKD4cwQb/exec';
+                const webhookUrl = 'https://script.google.com/macros/s/AKfycbzYHqPlA2Ot7xvq4l4Ce58-wZcK22kawwQhd4PG0bQKjd56lIcQomGtwQ5sX-6eF8ge/exec';
                 
-                const response = await fetch(webhookUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    mode: 'no-cors',
-                    body: JSON.stringify(metadata)
-                });
+                // Send each selection
+                for (const data of dataToSend) {
+                    const response = await fetch(webhookUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        mode: 'no-cors',
+                        body: JSON.stringify(data)
+                    });
 
-                if (response.type === 'opaque') {
-                    // Show success message
-                    const successMessage = document.createElement('div');
-                    successMessage.style.cssText = `
-                        position: fixed;
-                        top: 20px;
-                        right: 20px;
-                        background: #4CAF50;
-                        color: white;
-                        padding: 12px 24px;
-                        border-radius: 4px;
-                        z-index: 10002;
-                        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-                    `;
-                    successMessage.textContent = 'Highlight saved successfully!';
-                    document.body.appendChild(successMessage);
-                    
-                    setTimeout(() => {
-                        successMessage.remove();
-                    }, 3000);
-                    
-                    // Clear the selection and hide button
-                    lastSelection = {
-                        text: '',
-                        timestamp: 0
-                    };
-                    hideButton();
-                    popup.remove();
-                } else {
-                    throw new Error('Failed to save highlight');
+                    if (response.type !== 'opaque') {
+                        throw new Error('Failed to save highlight');
+                    }
                 }
+
+                // Show success message
+                const successMessage = document.createElement('div');
+                successMessage.style.cssText = `
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    background: #4CAF50;
+                    color: white;
+                    padding: 12px 24px;
+                    border-radius: 4px;
+                    z-index: 10002;
+                    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+                `;
+                successMessage.textContent = dataToSend.length > 1 
+                    ? `${dataToSend.length} highlights saved successfully!`
+                    : 'Highlight saved successfully!';
+                document.body.appendChild(successMessage);
+                
+                setTimeout(() => {
+                    successMessage.remove();
+                }, 3000);
+                
+                // Clear selections and hide button
+                selections.clear();
+                hideButton();
+                popup.remove();
             } catch (error) {
                 if (retryCount < maxRetries) {
                     retryCount++;
@@ -443,32 +828,57 @@ function showConfirmationPopup(metadata) {
     });
 
     cancelButton.addEventListener('click', () => {
-        // Clear the selection and hide button
-        lastSelection = {
-            text: '',
-            timestamp: 0
-        };
+        selections.clear();
         hideButton();
         popup.remove();
     });
 
     // Close popup when clicking outside
     popup.querySelector('.overlay').addEventListener('click', () => {
-        // Clear the selection and hide button
-        lastSelection = {
-            text: '',
-            timestamp: 0
-        };
+        selections.clear();
         hideButton();
         popup.remove();
+    });
+
+    // Add event listener for removing selections
+    popup.querySelectorAll('.remove-selection').forEach(button => {
+        button.addEventListener('click', (e) => {
+            const selectionId = e.target.dataset.id;
+            selections.delete(selectionId);
+            
+            // Update the popup content
+            const selectionsList = popup.querySelector('.selections-list');
+            if (selectionsList) {
+                selectionsList.innerHTML = Array.from(selections.entries())
+                    .map(([id, selection], index) => `
+                        <div class="selection-item">
+                            <div class="selection-header">
+                                <span class="selection-number">#${index + 1}</span>
+                                <button class="remove-selection" data-id="${id}">×</button>
+                            </div>
+                            <div class="selection-text">${selection.text}</div>
+                        </div>
+                    `).join('');
+                
+                // Update the title
+                const title = popup.querySelector('h2');
+                if (title) {
+                    title.textContent = `Confirm ${selections.size} Highlights`;
+                }
+                
+                // If no selections left, close the popup
+                if (selections.size === 0) {
+                    document.body.removeChild(popup);
+                }
+            }
+        });
     });
 }
 
 // Update the floating button click handler
 floatingButton.addEventListener('click', function() {
-    const selectedText = this.dataset.selectedText;
     const metadata = {
-        selectedText: selectedText,
+        selectedText: Array.from(selections.values())[0]?.text || '',
         pageTitle: document.title,
         pageUrl: window.location.href,
         timestamp: new Date().toISOString()
