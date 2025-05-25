@@ -23,6 +23,9 @@ let lastSelection = {
     timestamp: 0
 };
 
+// Add a flag to track if a save is in progress
+let isSaving = false;
+
 // Debounce function to prevent rapid firing
 function debounce(func, wait) {
     let timeout;
@@ -290,6 +293,11 @@ function showConfirmationPopup(metadata) {
     const cancelButton = popup.querySelector('#cancel-button');
 
     confirmButton.addEventListener('click', async () => {
+        // Prevent multiple saves
+        if (isSaving) {
+            return;
+        }
+
         // Validate data first
         const validation = validateData(metadata);
         if (!validation.isValid) {
@@ -314,6 +322,9 @@ function showConfirmationPopup(metadata) {
             }, 5000);
             return;
         }
+
+        // Set saving flag
+        isSaving = true;
 
         // Show loading state
         confirmButton.disabled = true;
@@ -356,8 +367,13 @@ function showConfirmationPopup(metadata) {
                         successMessage.remove();
                     }, 3000);
                     
+                    // Clear the selection and hide button
+                    lastSelection = {
+                        text: '',
+                        timestamp: 0
+                    };
+                    hideButton();
                     popup.remove();
-                    this.style.display = 'none';
                 } else {
                     throw new Error('Failed to save highlight');
                 }
@@ -416,8 +432,10 @@ function showConfirmationPopup(metadata) {
                     }
                 }, 10000);
             } finally {
+                // Reset button state and saving flag
                 confirmButton.disabled = false;
                 confirmButton.textContent = 'Send to Sheet';
+                isSaving = false;
             }
         };
         
@@ -425,11 +443,23 @@ function showConfirmationPopup(metadata) {
     });
 
     cancelButton.addEventListener('click', () => {
+        // Clear the selection and hide button
+        lastSelection = {
+            text: '',
+            timestamp: 0
+        };
+        hideButton();
         popup.remove();
     });
 
     // Close popup when clicking outside
     popup.querySelector('.overlay').addEventListener('click', () => {
+        // Clear the selection and hide button
+        lastSelection = {
+            text: '',
+            timestamp: 0
+        };
+        hideButton();
         popup.remove();
     });
 }
